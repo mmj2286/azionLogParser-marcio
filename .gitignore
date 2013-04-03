@@ -1,0 +1,27 @@
+AZ.*
+*.pyc
+*.log
+*.sql
+bin
+build
+include
+lib
+local
+man
+share
+Scripts
+.Python
+*~
+*.db
+.DS_Store
+htdocs/static/media/helpdesk/attachments/
+src/htdocs/static/media/helpdesk/attachments/
+.idea/
+.idea
+.idea/*
+.settings/
+.settings
+.settings/*
+*.DS_Store
+# Ignore localsettings file
+localsettings.py

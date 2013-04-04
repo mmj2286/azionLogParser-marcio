@@ -1,7 +1,4 @@
-import re
-import os
-import socket
-import datetime
+import re, os, sys, socket, datetime, MySQLdb, time
 import logging.handlers
 from decimal import *
 
@@ -26,9 +23,9 @@ class Entry:
         self.TotalMissHits = 0
 
     def printInfo(self):
-        print 'ClientID:', self.key_ClientID, 'Type:', self.key_Service_Type, 'Hostname:', self.key_HostName, 'Date:', self.key_Date, \
-            'Hour:', self.key_Hour, 'TotalMBs:', Decimal(self.TotalMBs) / (Decimal(1000) * Decimal(1000)), \
-            'TotalHits:', self.TotalHits, 'TotalMissMBs:', Decimal(self.TotalMissMBs) / (Decimal(1000) * Decimal(1000)), 'TotalMissHits:', self.TotalMissHits
+        return 'ClientID:', self.key_ClientID, 'Type:', self.key_Service_Type, 'Hostname:', self.key_HostName, 'Date:', self.key_Date, \
+            'Hour:', self.key_Hour, 'TotalMBs:', float(self.TotalMBs) / (float(1000) * float(1000)), \
+            'TotalHits:', self.TotalHits, 'TotalMissMBs:', float(self.TotalMissMBs) / (float(1000) * float(1000)), 'TotalMissHits:', self.TotalMissHits
 
         # verify if is HIT, EXPIRED, UPDATING, STALE, MISS, -
     def compute(self, state, tmb):
@@ -36,15 +33,19 @@ class Entry:
             if '\n' in state:
                 state = state.replace('\n', '')
 
+        self.TotalMBs += int(tmb)
+
         if state == 'HIT':
-            self.TotalMBs += int(tmb)
             self.TotalHits += 1
         elif state == 'MISS':
-            self.TotalMBs += int(tmb)
+            self.TotalMissMBs += int(tmb)
+            self.TotalMissHits += 1
+        elif state == 'EXPIRED':
             self.TotalMissMBs += int(tmb)
             self.TotalMissHits += 1
         else:
-            pass
+            if state == 'STALE' or state == 'UPDATING' or state == '-':
+                pass
 
     def equal(self, s):
         if self.key_ClientID == s:
@@ -118,8 +119,8 @@ logger = logMaker(logFile, logName = "azionpurgeagent")
 
 
 #get Type ==========================
-tp = os.getcwd().split("/")
-Type = tp[-1]
+Type = os.getcwd().split("/")[-1]
+Type = Type[:10]
 print 'running...', Type
 #===================================
 
@@ -131,13 +132,21 @@ getcontext().prec = 9
 
 #get hostName
 HostName = socket.gethostname()
+HostName = HostName[:20]
 
 #get ServerType, DataCenter, City
-h = HostName.split('.')
-h1 = h[0].split('-')
+h1 = HostName.split('.')[0].split('-')
 ServerType = h1[0]
 Datacenter = h1[1]
 City = h1[2]
+
+def insert(self, db, table):
+    cursor = db.cursor()
+    #print table, self.key_Date, self.key_Hour, self.key_ClientID, Type, self.TotalMBs, self.TotalHits,
+    #self.TotalMissMBs, self.TotalMissHits, HostName, ServerType, Datacenter, City, time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    # vals = table, self.key_Date, self.key_Hour, self.key_ClientID, Type, self.TotalMBs, self.TotalHits,
+    # self.TotalMissMBs, self.TotalMissHits, HostName, ServerType, Datacenter, City, time.strftime('%Y-%m-%d %H:%M:%S')
+    cursor.execute("INSERT INTO %s VALUES(%r, %r, %r, %r, %f, %r, %f, %r, %r, %r, %r, %r, %r)" % (table, self.key_Date, self.key_Hour, self.key_ClientID, Type, float(self.TotalMBs)/(float(1000) * float(1000)), self.TotalHits, float(self.TotalMissMBs)/(float(1000) * float(1000)), self.TotalMissHits, HostName, ServerType, Datacenter, City, time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())))
 
 ENTRIES = []
 
@@ -150,8 +159,7 @@ for file in folder:
     if file != os.path.basename(__file__) and re.match("(AZ.*)", file):
 
         #get clientId
-        s1 = file.split('AZ.')
-        s2 = s1[1].split('.log')
+        s2 = file.split('AZ.')[1].split('.log')
         clientId = s2[0]
         linecount = 0;
 
@@ -212,8 +220,30 @@ for file in folder:
                 else:
                     logger.error('FILE:', file, 'LINE:', linecount, ':', line)
 
-for e in ENTRIES:
-    e.printInfo()
 
 print 'Elapsed Time:', datetime.datetime.now() - start
 print counter, 'lines'
+
+for e in ENTRIES:
+    try:
+        db = MySQLdb.connect('localhost', 'root', '123', 'parserDB')
+        tableName = 'ClientsGlobalCounters'
+
+        print 'Added:', e.printInfo()
+        insert(e, db, tableName)
+        db.commit()
+
+    except MySQLdb.Error, e:
+        db.rollback()
+        print "Error %d: %s" % (e.args[0], e.args[1])
+        sys.exit(1)
+
+    finally:
+
+        if db:
+            db.close()
+
+
+
+
+
